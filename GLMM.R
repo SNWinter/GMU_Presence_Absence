@@ -73,7 +73,7 @@ options(na.action = na.fail)
 library(MuMIn)# Multimodel inference: model average of all possible models...all possible models ranked by AIC
 library(marginaleffects)
 library(emmeans)
-
+library(viridis)
 # GLMM formation, dredging, model averaging and prediction ----------------
 
 data$Year1 <- as.factor(data$Year)
@@ -84,9 +84,9 @@ data$GMU1 <- as.factor(data$GMU)
 combinedglmm <- glmer(formula= HarvestTotal~ Proportion_Forest + TRI_St + Human_Index + Method +(1|Year1) + (1|GMU1),
                   family= "poisson", offset = log(HunterDays),
                   data=data)
-
-
 summary(combinedglmm)
+
+
 # Predictions for Harvest total
 pred_combined <- predict(combinedglmm, type= "response")
 
@@ -128,7 +128,7 @@ head(CPUE_sf)
 
 
 ggplot(data= CPUE_sf)+
-  geom_sf(aes(fill = CPUE_base), #Adjust fill parameter to CPUE of choice
+  geom_sf(aes(fill = CPUE_dred), #Adjust fill parameter to CPUE of choice
           color="lightgray", lwd = 0.25)+
   theme_void()+
   scale_fill_viridis(option = "inferno")+
