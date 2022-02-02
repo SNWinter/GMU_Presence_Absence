@@ -3,6 +3,10 @@ source("./CPUE_Analysis.R")
 library(lme4)
 library(emmeans)
 library(tidyverse)
+library(ggplot2)
+library(sf)
+library(tidyverse)
+library(viridis)
 standardize <- function (x){
   x <- scale(x)
   z <- as.numeric(x)
@@ -42,6 +46,62 @@ pred_HuFtprnt <- predict(pca)
 data$pred_HuFtprnt <- pred_HuFtprnt[,1]
 data$Human_Index <- data$pred_HuFtprnt * -1
 
+data$Year1 <- as.factor(data$Year)
+data$TRI_St <- standardize(data$TRI)
+data$GMU1 <- as.factor(data$GMU)
+
+
+# Exploratory mapping of CPUE ---------------------------------------------
+arch <- data[data$Method=="Archery",]
+muzz <- data[data$Method=="Muzzleloader",] 
+mod <- data[data$Method=="Modern Firearm",]
+head(arch)
+
+arch_expl <- aggregate(HarvestTotal~GMU, data = arch, FUN = sum, na.action = na.omit)
+arch_expl <- left_join(arch_expl, aggregate(HunterDays~GMU, data = arch, FUN = sum, na.action = na.omit ))
+head(arch_expl)
+arch_expl$cpue <- arch_expl$HarvestTotal / (arch_expl$HunterDays/100)
+arch_expl <- full_join(WA_gmus, arch_expl)
+
+muzz_expl <- aggregate(HarvestTotal~GMU, data = muzz, FUN = sum, na.action = na.omit)
+muzz_expl <- left_join(muzz_expl, aggregate(HunterDays~GMU, data = muzz, FUN = sum, na.action = na.omit ))
+muzz_expl$cpue <- muzz_expl$HarvestTotal / (muzz_expl$HunterDays/100)
+muzz_expl <- full_join(WA_gmus, muzz_expl)
+
+mod_expl <- aggregate(HarvestTotal~GMU, data = mod, FUN = sum, na.action = na.omit)
+mod_expl <- left_join(mod_expl, aggregate(HunterDays~GMU, data = mod, FUN = sum, na.action = na.omit ))
+mod_expl$cpue <- mod_expl$HarvestTotal / (mod_expl$HunterDays/100)
+mod_expl <- full_join(WA_gmus, mod_expl)
+
+Aplot <- ggplot(arch_expl)+
+  geom_sf(aes(fill = HarvestTotal), #Adjust fill parameter to metric of choice (i.e., HarvestTotal, CPUE)
+          color="lightgray", lwd = 0.25)+
+  theme_void()+
+  ggtitle("Archery")+
+  scale_fill_viridis(option = "inferno")+
+  theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
+        legend.background = element_blank())
+Zplot <- ggplot(muzz_expl)+
+  geom_sf(aes(fill = HarvestTotal), #Adjust fill parameter to CPUE of choice
+          color="lightgray", lwd = 0.25)+
+  theme_void()+
+  ggtitle("Muzzleloader")+
+  scale_fill_viridis(option = "inferno")+
+  theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
+        legend.background = element_blank())
+Mplot <- ggplot(mod_expl)+
+  geom_sf(aes(fill = HarvestTotal), #Adjust fill parameter to CPUE of choice
+          color="lightgray", lwd = 0.25)+
+  theme_void()+
+  ggtitle("Modern")+
+  scale_fill_viridis(option = "inferno")+
+  theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
+        legend.background = element_blank())
+
+tri_plot <- gridExtra::grid.arrange(Aplot, Mplot, Zplot, nrow=1)
+ggsave(filename = "./Figures/Exploratory_HarvestTotal_byMethod.tiff",
+       plot = tri_plot, width = 14, height = 5, dpi = 300)
+
 # hist(data$Human_Index);hist(data$Proportion_Forest); hist(data$TRI); hist(data$Road_Density) ; hist(data$HPopN)
 
 # head(data)
@@ -73,19 +133,12 @@ options(na.action = na.fail)
 library(MuMIn)# Multimodel inference: model average of all possible models...all possible models ranked by AIC
 library(marginaleffects)
 library(emmeans)
-library(viridis)
+
 # GLMM formation, dredging, model averaging and prediction ----------------
-
-data$Year1 <- as.factor(data$Year)
-data$TRI_St <- standardize(data$TRI)
-data$GMU1 <- as.factor(data$GMU)
-
-
-combinedglmm <- glmer(formula= HarvestTotal~ Proportion_Forest + TRI_St + Human_Index + Method +(1|Year1) + (1|GMU1),
+combinedglmm <- glmer(formula= HarvestTotal ~ Proportion_Forest + TRI_St + Human_Index + Method +(1|Year1) + (1|GMU1),
                   family= "poisson", offset = log(HunterDays),
                   data=data)
 summary(combinedglmm)
-
 
 # Predictions for Harvest total
 pred_combined <- predict(combinedglmm, type= "response")
@@ -109,6 +162,7 @@ CPUE <- data%>%
   cbind(.,c(pred_combined))%>%
   cbind(., fixed_Pred_Comb$predicted)
 
+#Calculate CPUE
 CPUE$CPUE <- CPUE$HarvestTotal / c(CPUE$HunterDays/100)
 CPUE$CPUE_dred <- CPUE$`c(CombPredMAS)` / c(CPUE$HunterDays/100)
 CPUE$CPUE_base <- CPUE$`c(pred_combined)` / c(CPUE$HunterDays/100)
@@ -124,11 +178,10 @@ CPUE_sf <- full_join(WA_gmus, CPUE_df_dred)%>%
   full_join(., CPUE_df)%>%
   full_join(., CPUE_df_base)%>%
   full_join(.,CPUE_fixed_df)
-head(CPUE_sf)
-
+# head(CPUE_sf)
 
 ggplot(data= CPUE_sf)+
-  geom_sf(aes(fill = CPUE_dred), #Adjust fill parameter to CPUE of choice
+  geom_sf(aes(fill = CPUE_base), #Adjust fill parameter to CPUE of choice
           color="lightgray", lwd = 0.25)+
   theme_void()+
   scale_fill_viridis(option = "inferno")+
@@ -146,7 +199,7 @@ ggplot(data= CPUE_sf)+
 # Method Specific Models -------------------------------------------------
 
 # Archery -----------------------------------------------------------------
-arch <- data[data$Method=="Archery",]
+
 archglmm <- glmer(formula= HarvestTotal~ Proportion_Forest + TRI_St + Human_Index + (1|Year1)+ (1|GMU1),
                   family= "poisson", offset = log(HunterDays),
                   data= arch)
@@ -203,7 +256,6 @@ ggplot(data= CPUE_arch_sf)+
 
 
 # Muzzleloader ------------------------------------------------------------
-muzz <- data[data$Method=="Muzzleloader",] 
 muzzglmm <- glmer(formula= HarvestTotal~ Proportion_Forest + TRI_St + Human_Index  + (1|Year1)+ (1|GMU1),
                   family= "poisson", offset = log(HunterDays), 
                   data= muzz)
@@ -258,7 +310,7 @@ ggplot(data= CPUE_muzz_sf)+
 
 
 # Modern Firearm ----------------------------------------------------------
-mod <- data[data$Method=="Modern Firearm",]
+
 modglmm <- glmer(formula= HarvestTotal~ Proportion_Forest + TRI_St + Human_Index + (1|Year1)+ (1|GMU1),
                       family= "poisson", offset = log(HunterDays), data= mod)
 summary(modglmm)
