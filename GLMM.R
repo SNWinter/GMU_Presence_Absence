@@ -7,112 +7,10 @@ library(ggplot2)
 library(sf)
 library(tidyverse)
 library(viridis)
-standardize <- function (x){
-  x <- scale(x)
-  z <- as.numeric(x)
-  attr(z, "scaled:center") <- attr(x, "scaled:center")
-  attr(z, "scaled:scale") <- attr(x, "scaled:scale")
-  return(z)
-}
+
 # head(decade)
 
 
-# Exploratory Analysis and PCA --------------------------------------------
-
-#Some covariates have differences of magnitude, should we standardize? Is a normalized standardization appropriate?
-boxplot(data$CPUE~data$HPopN)
-GGally::ggcorr(data = data, label = T)
-#Some highly correlated covariates-- do we convert to PCA?
-
-#Transformed Human "footprint" metrics
-pca_data <- data%>%
-  select(Road_Density, HPopN, WUI_Interface)
-GGally::ggcorr(data = pca_data, label = T)
-
-# assess scree plot for PCA (if <~70% var explained, ditch effort)
-pca <- prcomp(pca_data, center = TRUE,scale. = TRUE)
-# screeplot(pca)
-# plot(pca$sdev^2 / sum(pca$sdev^2))
-(pca$sdev^2 / sum(pca$sdev^2))[1] #Var explained in PC1
-(pca$sdev^2 / sum(pca$sdev^2))[2] #Var explained in PC2
-biplot(pca)
-ggbiplot::ggbiplot(pca, varname.size = 4)+theme_bw()+
-  theme(axis.title = element_text(size = rel(1.3)),
-        axis.text = element_text(size = rel(1.3))
-        )
-
-
-pred_HuFtprnt <- predict(pca)
-data$pred_HuFtprnt <- pred_HuFtprnt[,1]
-data$Human_Index <- data$pred_HuFtprnt * -1
-
-data$Year1 <- as.factor(data$Year)
-data$TRI_St <- standardize(data$TRI)
-data$GMU1 <- as.factor(data$GMU)
-
-
-# Exploratory mapping of CPUE ---------------------------------------------
-arch <- data[data$Method=="Archery",]
-muzz <- data[data$Method=="Muzzleloader",] 
-mod <- data[data$Method=="Modern Firearm",]
-head(arch)
-
-arch_expl <- aggregate(HarvestTotal~GMU, data = arch, FUN = sum, na.action = na.omit)
-arch_expl <- left_join(arch_expl, aggregate(HunterDays~GMU, data = arch, FUN = sum, na.action = na.omit ))
-head(arch_expl)
-arch_expl$cpue <- arch_expl$HarvestTotal / (arch_expl$HunterDays/100)
-arch_expl <- full_join(WA_gmus, arch_expl)
-
-muzz_expl <- aggregate(HarvestTotal~GMU, data = muzz, FUN = sum, na.action = na.omit)
-muzz_expl <- left_join(muzz_expl, aggregate(HunterDays~GMU, data = muzz, FUN = sum, na.action = na.omit ))
-muzz_expl$cpue <- muzz_expl$HarvestTotal / (muzz_expl$HunterDays/100)
-muzz_expl <- full_join(WA_gmus, muzz_expl)
-
-mod_expl <- aggregate(HarvestTotal~GMU, data = mod, FUN = sum, na.action = na.omit)
-mod_expl <- left_join(mod_expl, aggregate(HunterDays~GMU, data = mod, FUN = sum, na.action = na.omit ))
-mod_expl$cpue <- mod_expl$HarvestTotal / (mod_expl$HunterDays/100)
-mod_expl <- full_join(WA_gmus, mod_expl)
-
-Aplot <- ggplot(arch_expl)+
-  geom_sf(aes(fill = HarvestTotal), #Adjust fill parameter to metric of choice (i.e., HarvestTotal, CPUE)
-          color="lightgray", lwd = 0.25)+
-  theme_void()+
-  ggtitle("Archery")+
-  scale_fill_viridis(option = "inferno")+
-  theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
-        legend.background = element_blank())
-Zplot <- ggplot(muzz_expl)+
-  geom_sf(aes(fill = HarvestTotal), #Adjust fill parameter to CPUE of choice
-          color="lightgray", lwd = 0.25)+
-  theme_void()+
-  ggtitle("Muzzleloader")+
-  scale_fill_viridis(option = "inferno")+
-  theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
-        legend.background = element_blank())
-Mplot <- ggplot(mod_expl)+
-  geom_sf(aes(fill = HarvestTotal), #Adjust fill parameter to CPUE of choice
-          color="lightgray", lwd = 0.25)+
-  theme_void()+
-  ggtitle("Modern")+
-  scale_fill_viridis(option = "inferno")+
-  theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
-        legend.background = element_blank())
-
-tri_plot <- gridExtra::grid.arrange(Aplot, Mplot, Zplot, nrow=1)
-ggsave(filename = "./Figures/Exploratory_HarvestTotal_byMethod.tiff",
-       plot = tri_plot, width = 14, height = 5, dpi = 300)
-
-# hist(data$Human_Index);hist(data$Proportion_Forest); hist(data$TRI); hist(data$Road_Density) ; hist(data$HPopN)
-
-# head(data)
-# par(mfrow = c(1,3))
-# hist(data[data$Method=="Archery",]$HarvestTotal, breaks = 200)
-# hist(data[data$Method=="Muzzleloader",]$HarvestTotal, breaks = 200)
-# hist(data[data$Method=="Modern Firearm",]$HarvestTotal, breaks = 200)
-# summary(data[data$Method=="Archery",]$HarvestTotal, breaks = 200)
-# summary(data[data$Method=="Muzzleloader",]$HarvestTotal, breaks = 200)
-# summary(data[data$Method=="Modern Firearm",]$HarvestTotal, breaks = 200)
-# plot(HarvestTotal ~ HunterDays, data = data)
 # archglmm <- glmmTMB::glmmTMB(formula= HarvestTotal~ Proportion_Forest + TRI + Road_Density + HPopN + (1|Year),
 #                        family= "poisson", offset = HunterDays,
 #                        data=data[data$Method=="Archery",] )
@@ -178,10 +76,11 @@ CPUE_sf <- full_join(WA_gmus, CPUE_df_dred)%>%
   full_join(., CPUE_df)%>%
   full_join(., CPUE_df_base)%>%
   full_join(.,CPUE_fixed_df)
-# head(CPUE_sf)
+  
+
 
 ggplot(data= CPUE_sf)+
-  geom_sf(aes(fill = CPUE_base), #Adjust fill parameter to CPUE of choice
+  geom_sf(aes(fill = CPUE_dred), #Adjust fill parameter to CPUE of choice
           color="lightgray", lwd = 0.25)+
   theme_void()+
   scale_fill_viridis(option = "inferno")+
@@ -346,24 +245,29 @@ CPUE_mod_df <- aggregate(CPUE~GMU, data = CPUE_mod, FUN = sum)
 CPUE_mod_df_dred <- aggregate(CPUE_dred~GMU, data = CPUE_mod, FUN = sum)
 CPUE_mod_df_base <- aggregate(CPUE_base ~GMU, data = CPUE_mod, FUN = sum)
 CPUE_mod_fixed_df <- aggregate(CPUE_fixedHI ~GMU, data = CPUE_mod, FUN = sum)
+# CPUE_mod_sim <- aggregate(`c(ModPredMAS)` ~GMU, data = CPUE_mod, FUN = sum) #Simulated just for proof of concept
 
 CPUE_mod_sf <- full_join(WA_gmus, CPUE_mod_df_dred)%>%
   full_join(., CPUE_mod_df)%>%
   full_join(., CPUE_mod_df_base)%>%
-  full_join(.,CPUE_mod_fixed_df)
+  full_join(.,CPUE_mod_fixed_df)#%>%
+  # full_join(.,CPUE_mod_sim)#Simulated just for proof of concept
 
 
+head(CPUE_mod_sf)
 #Plotting
 ggplot(data= CPUE_mod_sf)+
-  geom_sf(aes(fill = CPUE_base), #Adjust fill parameter to CPUE of choice
+  geom_sf(aes(fill = `c(ModPredMAS)`), #Adjust fill parameter to CPUE of choice #Simulated just for proof of concept
           color="lightgray", lwd = 0.25)+
   theme_void()+
   scale_fill_viridis(option = "inferno")+
   theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
         legend.background = element_blank())
 
-
-
+# #Simulated just for proof of concept
+# simulated_CPUEMap <-  subset(CPUE_mod_sf, select = c(`c(ModPredMAS)`, GMU_Num, geometry))
+# simulated_CPUEMap <- simulated_CPUEMap[!is.na(simulated_CPUEMap$`c(ModPredMAS)`),]
+# write_sf(simulated_CPUEMap, "./Simulated_Elk_Abundance.shp")
 
 
 # Combine dfs into one for easy data manipulations ------------------------

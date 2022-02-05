@@ -7,31 +7,70 @@ library(sf)
 files <- list.files("C:/Users/steven.winter/OneDrive - Washington State University (email.wsu.edu)/Datasets/GMU-level_Presence_Absence", pattern = ".csv", full.names = TRUE)
 
 WA_gmus <- st_read("C:/Users/steven.winter/OneDrive - Washington State University (email.wsu.edu)/Datasets/Game_management_units/Washington_GMUs/WA_GMUs_Metadata.shp")
-head(WA_gmus)
+# head(WA_gmus)
 
 decade_raw <- read.csv(files[grepl("2011-2020", files)])
 decade <- decade_raw
-head (decade)
+# head (decade)
 
 names(decade)[names(decade)==names(decade)[1]] <- "Year"
 names(decade)[names(decade)=="UnitNumberTypeText"] <- "GMU"
 decade$GMU <- gsub(pattern = "GMU ", replacement = "", x = decade$GMU)
 decade$GMU <- as.integer(decade$GMU)
 
+
+# View(decade_raw[decade_raw$Method=="All Methods",])
+#Remove All methods because it doesn't inform about effort or success rates.
 decade <- subset(decade, decade$Method!="All Methods")
-decade <- subset(decade, decade$Method!="Multiple Weapons")
+# decade <- subset(decade, decade$Method!="Multiple Weapons")
 
 #Do we have any hunters participating with 0 hunter days reported?
-decade[decade$Hunters>0 & decade$HunterDays==0,]
-#asuume if a hunter is recorded that they attempted at least one day (or else why would they be recorded?)
-decade[decade$Hunters>0 & decade$HunterDays==0,]$HunterDays <- decade[decade$Hunters>0 & decade$HunterDays==0,]$Hunters
+decade[decade$Hunters>0 & decade$HunterDays==0,] #Yes, remove errors (# of hunter days is un-imputable)
+decade <- decade[!(decade$Hunters>0 & decade$HunterDays==0),]
 
-decade$Hunters2 <- ifelse(decade$HunterDays==decade$HarvestTotal,decade$HunterDays, decade$Hunters)
+
+
+#Do we have non-zero hunter days but no hunters reported?
+decade[decade$Hunters==0 & decade$HunterDays>0,] #Yes.. but unclear how many hunters. Yet, this doesn't matter because the success rates and effort remain unchanged regardless of # of hunters when no elk are taken... 
+
+
+
+# Does the "correction for non-response data" significantly impact SuccessRate?
+# First,an we re-create success rate?
+decade$SuccessRate1 <- (decade$HarvestTotal/decade$Hunters)*100 #Some entries have inf. Error in # of hunters calculated.
+
+# Are there records with 0 hunters, but hunterdays/harvesttotals >0? 
+decade[decade$Hunters==0 & decade$HarvestTotal>0,] #Yes, one entry with DaysPerKill, harvest total, and hunterdays all = 1... So one hunter.
+decade[decade$Hunters==0 & decade$HarvestTotal>0 & decade$HunterDays>0,]$Hunters <- decade[decade$Hunters==0 & decade$HarvestTotal>0 & decade$HunterDays>0,]$HunterDays
+
+# Remove all others with unknown effort/hunter numbers
+decade <- decade[!(decade$Hunters==0 & decade$HarvestTotal>0),] 
+
+decade$SuccessRate1 <- (decade$HarvestTotal/decade$Hunters)*100 #Re-calculate
+decade[is.infinite(decade$SuccessRate1)==TRUE,] #no inf (all hunters accounted for)
+#Fix error to compare success rate. In this case, we can assume 1 hunter day & 1 harvested implies # of hunters also = 1.
+# decade[is.infinite(decade$SuccessRate1)==TRUE,]$Hunters <- decade[is.infinite(decade$SuccessRate1)==TRUE,]$HunterDays
+
+decade[is.na(decade$SuccessRate1)==TRUE,]$SuccessRate1 <- 
+  ifelse(decade[is.na(decade$SuccessRate1)==TRUE,]$HarvestTotal==0, 0, NA)
+
+mean(decade$SuccessRate);mean(decade$SuccessRate1)
+
+t.test(decade$SuccessRate, decade$SuccessRate1)$p.value > 0.05 #Evaluate for significant difference between calculated/DFW success rates.
+
+decade <- subset(decade, select = -c(SuccessRate1))
+# plot(decade$SuccessRate ~decade$GMU)
 
 #aggregate(HarvestTotal~GMU, data =decade, FUN =sum)
 
 decade$CPUE <- decade$HarvestTotal / (decade$HunterDays/100)
-decade[is.na(decade$Method),]
+summary(decade$CPUE) #Some NAs detected.
+#Change CPUE to equal zero if harvest total and hunters = 0.. Or keep as NA and remove?  
+# decade[is.na(decade$CPUE),]$CPUE <- ifelse(decade[is.na(decade$CPUE),]$HarvestTotal==0, 0, NA)
+# 
+decade <- decade[!is.na(decade$CPUE),]
+# plot(decade$CPUE ~decade$GMU)
+
 
 # #SKIP
 # cpue_sum <- aggregate(CPUE~GMU, data = decade, FUN = sum)
@@ -63,6 +102,7 @@ decade[is.na(decade$Method),]
 # }
 # colnames(hpop_df) <- c("GMU", "HPopN")
 # write.csv(hpop_df, "C:/Users/steven.winter/OneDrive - Washington State University (email.wsu.edu)/Datasets/GMU_Level_Human_Population/HumanPopN.csv", row.names = F)
+
 hpop_df <- read.csv("C:/Users/steven.winter/OneDrive - Washington State University (email.wsu.edu)/Datasets/GMU_Level_Human_Population/HumanPopN.csv")
 
 WA_gmus <- left_join(WA_gmus, hpop_df)
@@ -90,8 +130,151 @@ data$HPopN <- round(data$HPopN,0)
 # data$cpueadj <- data$CPUE / log(data$HPopN)
 
 # write_sf(data,"C:/Users/steven.winter/OneDrive - Washington State University (email.wsu.edu)/GIS/CPUE.shp")
-
+ 
 data <- data[!is.na(data$CPUE),]
+
+
+
+# Exploratory Analysis and PCA --------------------------------------------
+standardize <- function (x){
+  x <- scale(x)
+  z <- as.numeric(x)
+  attr(z, "scaled:center") <- attr(x, "scaled:center")
+  attr(z, "scaled:scale") <- attr(x, "scaled:scale")
+  return(z)
+}
+#Some covariates have differences of magnitude, should we standardize? Is a normalized standardization appropriate?
+# boxplot(data$CPUE~data$HPopN)
+# corrplot <- GGally::ggcorr(data = data[c(2:34)],
+#                 label = T, label_alpha = T,geom = "tile", label_size = 3,
+#                 palette = "PuOr", hjust = 1, legend.position = c(0.1,0.7), layout.exp = 7)
+# ggsave(filename = "./Figures/Correlogram_Covariates_Exploratory.tiff", plot = corrplot, 
+#        width = 14,height = 11,units = "cm",  dpi = 300, scale = 1.5)#Some highly 
+
+#Transformed Human "footprint" metrics
+pca_data <- data%>%
+  select(Road_Density, HPopN, WUI_Interface)
+# GGally::ggcorr(data = pca_data, label = T)
+
+# assess scree plot for PCA (if <~70% var explained, ditch effort)
+pca <- prcomp(pca_data, center = TRUE,scale. = TRUE)
+# screeplot(pca)
+# plot(pca$sdev^2 / sum(pca$sdev^2))
+(pca$sdev^2 / sum(pca$sdev^2))[1] #Var explained in PC1
+(pca$sdev^2 / sum(pca$sdev^2))[2] #Var explained in PC2
+# biplot(pca)
+biplot <- ggbiplot::ggbiplot(pca, varname.size = 4)+theme_bw()+
+  theme(axis.title = element_text(size = rel(1.3)),
+        axis.text = element_text(size = rel(1.3))
+  )
+ggsave(filename = "./Figures/PCA_Exploratory.tiff", plot = biplot, 
+       width = 5,height = 7, dpi = 300)
+
+pred_HuFtprnt <- predict(pca)
+data$pred_HuFtprnt <- pred_HuFtprnt[,1]
+data$Human_Index <- data$pred_HuFtprnt * -1
+
+data$Year1 <- as.factor(data$Year)
+data$TRI_St <- standardize(data$TRI)
+data$GMU1 <- as.factor(data$GMU)
+
+
+# Exploratory mapping of CPUE ---------------------------------------------
+arch <- data[data$Method=="Archery",]
+muzz <- data[data$Method=="Muzzleloader",] 
+mod <- data[data$Method=="Modern Firearm",]
+mult <- data[data$Method=="Multiple Weapons",]
+head(arch)
+
+arch_expl <- aggregate(HarvestTotal~GMU, data = arch, FUN = sum, na.action = na.omit)
+arch_expl <- left_join(arch_expl, aggregate(HunterDays~GMU, data = arch, FUN = sum, na.action = na.omit ))
+arch_expl$cpue <- arch_expl$HarvestTotal / (arch_expl$HunterDays/100)
+arch_expl <- full_join(WA_gmus, arch_expl)
+
+muzz_expl <- aggregate(HarvestTotal~GMU, data = muzz, FUN = sum, na.action = na.omit)
+muzz_expl <- left_join(muzz_expl, aggregate(HunterDays~GMU, data = muzz, FUN = sum, na.action = na.omit ))
+muzz_expl$cpue <- muzz_expl$HarvestTotal / (muzz_expl$HunterDays/100)
+muzz_expl <- full_join(WA_gmus, muzz_expl)
+
+mod_expl <- aggregate(HarvestTotal~GMU, data = mod, FUN = sum, na.action = na.omit)
+mod_expl <- left_join(mod_expl, aggregate(HunterDays~GMU, data = mod, FUN = sum, na.action = na.omit ))
+mod_expl$cpue <- mod_expl$HarvestTotal / (mod_expl$HunterDays/100)
+mod_expl <- full_join(WA_gmus, mod_expl)
+
+mult_expl <- aggregate(HarvestTotal~GMU, data = mult, FUN = sum, na.action = na.omit)
+mult_expl <- left_join(mult_expl, aggregate(HunterDays~GMU, data = mult, FUN = sum, na.action = na.omit ))
+mult_expl$cpue <- mult_expl$HarvestTotal / (mult_expl$HunterDays/100)
+mult_expl <- full_join(WA_gmus, mult_expl)
+
+
+# Exploratory plots -------------------------------------------------------
+# Aplot <- ggplot(arch_expl)+
+#   geom_sf(aes(fill = cpue), #Adjust fill parameter to metric of choice (i.e., HarvestTotal, CPUE)
+#           color="lightgray", lwd = 0.25)+
+#   theme_void()+
+#   ggtitle("Archery")+
+#   scale_fill_viridis(option = "inferno")+
+#   theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
+#         legend.background = element_blank())
+# Zplot <- ggplot(muzz_expl)+
+#   geom_sf(aes(fill = cpue), #Adjust fill parameter to CPUE of choice
+#           color="lightgray", lwd = 0.25)+
+#   theme_void()+
+#   ggtitle("Muzzleloader")+
+#   scale_fill_viridis(option = "inferno")+
+#   theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
+#         legend.background = element_blank())
+# Mplot <- ggplot(mod_expl)+
+#   geom_sf(aes(fill = cpue), #Adjust fill parameter to CPUE of choice
+#           color="lightgray", lwd = 0.25)+
+#   theme_void()+
+#   ggtitle("Modern")+
+#   scale_fill_viridis(option = "inferno")+
+#   theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
+#         legend.background = element_blank())
+# Uplot <- ggplot(mult_expl)+
+#   geom_sf(aes(fill = cpue), #Adjust fill parameter to CPUE of choice
+#           color="lightgray", lwd = 0.25)+
+#   theme_void()+
+#   ggtitle("Multiple")+
+#   scale_fill_viridis(option = "inferno")+
+#   theme(panel.grid = element_blank(), legend.position = c(0.05,0.2),
+#         legend.background = element_blank())
+# 
+# quad_plot <- gridExtra::grid.arrange(Aplot, Mplot, Zplot,Uplot, nrow=2)
+# ggsave(filename = "./Figures/Exploratory_CPUE_byMethod.tiff",
+#        plot = quad_plot, width = 14, height = 5, dpi = 300)
+
+rm(Aplot, Mplot, Zplot,Uplot, biplot, corrplot, pred_HuFtprnt, pca_data, pca, files)
+
+# hist(data$Human_Index);hist(data$Proportion_Forest); hist(data$TRI); hist(data$Road_Density) ; hist(data$HPopN)
+
+# head(data)
+# par(mfrow = c(1,3))
+# hist(data[data$Method=="Archery",]$HarvestTotal, breaks = 200)
+# hist(data[data$Method=="Muzzleloader",]$HarvestTotal, breaks = 200)
+# hist(data[data$Method=="Modern Firearm",]$HarvestTotal, breaks = 200)
+# hist(data[data$Method=="Multiple Weapons",]$HarvestTotal, breaks = 200)
+# summary(lm(CPUE~SuccessRate, data))
+# ggplot(data= data)+
+#   geom_point(aes(x = log(HPopN), y = log(CPUE)), color = "dimgray")+
+#   geom_smooth(aes(x = log(HPopN), y = log(CPUE)))
+#   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 # Standardize -------------------------------------------------------------
