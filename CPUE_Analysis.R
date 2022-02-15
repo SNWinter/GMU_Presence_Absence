@@ -63,7 +63,8 @@ decade <- subset(decade, select = -c(SuccessRate1))
 
 #aggregate(HarvestTotal~GMU, data =decade, FUN =sum)
 
-decade$CPUE <- decade$HarvestTotal / (decade$HunterDays/100)
+decade$CPUE <- decade$HarvestTotal / (decade$HunterDays)
+# decade$CPUE <- decade$HarvestTotal / (decade$HunterDays/100)
 summary(decade$CPUE) #Some NAs detected.
 #Change CPUE to equal zero if harvest total and hunters = 0.. Or keep as NA and remove?  
 # decade[is.na(decade$CPUE),]$CPUE <- ifelse(decade[is.na(decade$CPUE),]$HarvestTotal==0, 0, NA)
@@ -114,14 +115,14 @@ data <- WA_gmus %>%
   dplyr::select(GMU, Prp_For, Pct_For, TriArea, 
          Pct_TRI, MElevM, SDElevM,
          Rd_Lgth, AreSqKm, Rd_DMSK, PDnPSKM, Pub_Prp, InvPbPr,
-         WDFW_Pr, WUIntmx, WUIntfc, HPopN)%>%
+         WDFW_Pr, WUIntmx, WUIntfc, HPopN, EstWs_I)%>%
   dplyr::rename(Proportion_Forest = Prp_For, TRI = TriArea, 
          Mean_Elevation = MElevM, SD_Elevation = SDElevM,
          Road_Length = Rd_Lgth, Area_SqKm = AreSqKm, 
          Road_Density = Rd_DMSK, HPopN = HPopN, HPop_Dens = PDnPSKM,
          Public_Prop = Pub_Prp, PrivateNOTPub = InvPbPr,
          WDFW_PrivateLands = WDFW_Pr, WUI_Intermix = WUIntmx, 
-         WUI_Interface = WUIntfc)%>%
+         WUI_Interface = WUIntfc, Region_EW = EstWs_I)%>%
   full_join(decade)%>%
   # full_join(cpue_method)%>%
   st_drop_geometry() # Remove the geometry aspect of the sf data frame
@@ -177,9 +178,10 @@ data$Human_Index <- data$pred_HuFtprnt * -1
 data$Year1 <- as.factor(data$Year)
 data$TRI_St <- standardize(data$TRI)
 data$GMU1 <- as.factor(data$GMU)
+data$Region_EW <- as.factor(data$Region_EW)
 
 
-# Exploratory mapping of CPUE ---------------------------------------------
+# Exploratory mapping of basic CPUE ---------------------------------------------
 arch <- data[data$Method=="Archery",]
 muzz <- data[data$Method=="Muzzleloader",] 
 mod <- data[data$Method=="Modern Firearm",]
